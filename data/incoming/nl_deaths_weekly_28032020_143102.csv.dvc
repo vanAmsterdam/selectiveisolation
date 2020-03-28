@@ -1,0 +1,7 @@
+md5: cd50de11c75688ffbbe9b2af844df2b7
+outs:
+- md5: dc99a3f7e4bfc56470230ff29b2c0932
+  path: nl_deaths_weekly_28032020_143102.csv
+  cache: true
+  metric: false
+  persist: false

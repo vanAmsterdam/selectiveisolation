@@ -1,0 +1,7 @@
+md5: f43b991afee65a3b4a9dd1b500b2c863
+outs:
+- md5: 88887a0d0820aa91c0dd5353832550d1
+  path: COVID-19_WebSite_rapport_20200328_mvb.pdf
+  cache: true
+  metric: false
+  persist: false
