@@ -2,7 +2,9 @@
 title: "Selective Isolation"
 author: "Wouter van Amsterdam"
 date: "3/30/2020"
-output: html_document
+output:
+  html_document: default
+  word_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -188,7 +190,7 @@ $$R_{marg} = \sum_i{p_i*R*rr_i} = R * \sum_i{p_i*rr_i}$$
 
 So now we have that
 
-$$R = \frac{R_{marg}}{\sum_{p_i*rr_i}}$$
+$$R = \frac{R_{marg}}{\sum_i{p_i*rr_i}}$$
 
 We procede to calculate $\sum_{p_i*rr_i} := \text{ir_mu}$ and 
 the corresponding $R$ for each marginal death rate

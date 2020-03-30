@@ -454,7 +454,7 @@ settings[, herd_prop:=herd_needed/herd_avail]</code></pre>
 <p><span class="math display">\[R_{marg} = \sum_i{p_i*R_i}\]</span></p>
 <p>Where <span class="math inline">\(p_i\)</span> the proportion of the population in age group <span class="math inline">\(i\)</span> and <span class="math inline">\(R_i\)</span> the death rate in that age group We introduce a single factor R such that <span class="math inline">\(R_i = R * rr_i\)</span>, and that <span class="math inline">\(\sum_i{rr_i}=1\)</span>. Then: <span class="math display">\[R_{marg} = \sum_i{p_i*R*rr_i} = R * \sum_i{p_i*rr_i}\]</span></p>
 <p>So now we have that</p>
-<p><span class="math display">\[R = \frac{R_{marg}}{\sum_{p_i*rr_i}}\]</span></p>
+<p><span class="math display">\[R = \frac{R_{marg}}{\sum_i{p_i*rr_i}}\]</span></p>
 <p>We procede to calculate <span class="math inline">\(\sum_{p_i*rr_i} := \text{ir_mu}\)</span> and the corresponding <span class="math inline">\(R\)</span> for each marginal death rate</p>
 <pre class="r"><code>ir_mu = agem[variable==&#39;Overleden&#39;][demsmf, sum(ir_norm*i.Bevolking_prop), on=&#39;Leeftijdsgroep&#39;]
 settings[, Rfactor:=marginaldeathrate / ir_mu]</code></pre>
