@@ -1,0 +1,364 @@
+---
+title: "Selective Isolation"
+author: "Wouter van Amsterdam"
+date: "3/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(dplyr)
+library(purrr)
+library(stringr)
+library(data.table)
+
+```
+
+## Introduction
+
+The COVID-19 virus is infecting people at an exponential pace,
+overwhelming hospital resources and causing many fatalities.
+Across multiple countries, there is a pronounced age difference in the
+hazard of dying.
+We try to model the consequences of a selective isolation approach, 
+where people with higher risk of dying (specifically >65 years old) 
+are put in strict isolation, while the rest of the population is asked
+to behave and move as normal. 
+This way, the low-risk population may build up the required herd-immunity,
+possibly preventing many deaths and intensive care usage.
+
+## Materials and Methods
+
+We base our modelling on the Dutch situation. Our primary data-sources are:
+
+- the daily report by the Dutch institute for health (RIVM) on the number of 
+known infections, hospitalizations and deaths, due to COVID-19.
+- the Dutch demographic build up (source: https://opendata.cbs.nl/statline/)
+
+These enter our analysis as two data-files:
+
+```{r, read_data}
+# get the (curated) data
+agetable <- fread(here::here('data', 'agetable.csv'), na.strings = '')
+dems     <- fread(here::here('data', 'demographics.csv'), na.strings='')
+print(head(agetable))
+print(head(dems))
+```
+
+Where `agetable` contains the age-specific cases, hopitalizations and deaths.
+`dems` has the count of people
+
+First we calculate the proportion of each variable (population, cases, etc) 
+in each age group
+
+```{r, proportions}
+## normalize 
+dems[, Bevolking_prop:=Bevolking / sum(Bevolking)]
+### make one with both sexes
+grpvars <- c('agegrp_min', 'agegrp_max', 'Leeftijdsgroep')
+demsmf <- dems[,list(
+  Bevolking=sum(Bevolking),
+  Bevolking_prop=sum(Bevolking_prop)
+), by = grpvars]
+# demsmf[, plot(agegrp_min, Bevolking)]
+
+# make a long version of the data
+## remove missing age group (is tiny and not relevant for relative rates)
+grpvars <- c('agegrp_min', 'agegrp_max', 'Leeftijdsgroep')
+agem <- melt(agetable[!is.na(Leeftijdsgroep)], id.vars=grpvars,
+             measure.vars=c('Totaal', 'Ziekenhuisopname', 'Overleden'),
+             value.name='casecount')
+
+## calculate proportions
+agem[, prop:=casecount / sum(casecount), by = c('variable')]
+```
+
+There are no reliable sources on the age-specific risk of getting
+infected with the COVID-19 virus,
+as all testing schemes are biased where worse symptoms increase the likelihood
+of being tested.
+For our analysis we assume a uniform risk of getting infected.
+This means every person of every age has the same risk of getting the infection.
+It is likely that this overestimates the risk of infection for older people,
+as they are generally less mobile.
+We then compare the number of deaths per age group, with and without 
+standardizing for the demographic situation.
+
+```{r, irplot}
+## standardize per demographics
+mvars <- c('Bevolking', 'Bevolking_prop')
+### make incidencerates by merging data on age group
+agem[demsmf, incidencerate:=casecount / i.Bevolking, on='Leeftijdsgroep']
+### make normalized incidence rate (as prop of total)
+agem[, ir_norm:=incidencerate / sum(incidencerate), by = 'variable']
+
+## plots
+
+### ecdf of age
+demsmf[order(agegrp_min), Bevolking_cum:=cumsum(Bevolking)]
+demsmf[, Bevolking_cdf:=Bevolking_cum / sum(Bevolking)]
+# demsmf[, plot(agegrp_min, Bevolking_cdf, type='l')]
+
+agem %>%
+  melt(id.vars=c('variable', 'agegrp_min'),
+       measure.var = c('prop', 'ir_norm'),
+       variable.name='vartype', value.name='value') %>%
+  mutate(vartype=factor(vartype, levels=c('prop', 'ir_norm'), 
+                        labels=c('crude', 'corrected'))) %>%
+  ggplot(aes(x=agegrp_min,y=value,group=vartype,col=vartype)) + 
+  geom_line() + 
+  theme_minimal() + 
+  facet_grid(~variable) + 
+  ggtitle('Number of known cases, hospitalization and deaths',
+          'with and without correcting for demographics')
+```
+
+This graph shows that, when correcting for the demographic situation,
+the age effect is even more pronounced.
+
+### Modeling
+
+Next, we model a range of scenarios to account for uncertainty.
+Due to the problem of underreported infections,
+and possibly underreported deaths, the true marginal mortality rate is unknown.
+We consider situations for the true marginal mortality rate between 0.5% and 3.5%.
+The required proportion of the population required for herd-immunity is also unknown,
+though it depends on the R0 of the virus.
+We consider it to be between 60% and 80%.
+Moverover, we assume that everyone who comes in contact with the virus 
+will get infected and will either develop lasting immunity, or die.
+
+<<<note this is currently not modeled: dying takes you out of the immune herd>>>
+
+We will consider two strategies: non-selective measures, or selective isolation,
+where we assume everyone under the age-limit (65) will get infected,
+and no one older will get infected.
+
+As a first step, we need to check if the required herd-immunity can 
+even be reached when only people under 65 can get infected.
+
+```{r, modeling}
+
+## make some scenarios
+marginaldeathrates <- seq(0.005, 0.035, by=0.005)
+herdimmunityprops  <- seq(0.6, 0.8, by=0.05)
+freeages           <- c(65, 130)
+                          
+### look at minimum age to get at least this amount of the people infected
+Bevolking_cdf_fn  <- approxfun(x=demsmf$agegrp_max, y=demsmf$Bevolking_cdf)
+Bevolking_icdf_fn <- approxfun(x=demsmf$Bevolking_cdf, y=demsmf$agegrp_max)
+maxfreeages <- Bevolking_icdf_fn(herdimmunityprops)
+print(data.table(herdimmunityprop=herdimmunityprops,
+                 maxfreeage=maxfreeages))
+
+```
+
+This seems to be just enough, even in the most extreme case of 80%
+required herd-immunity
+
+Now we can continue with modeling the number of deaths for the different scenarios.
+
+```{r, make_settings}
+#### define settings
+settings <- CJ(
+  marginaldeathrate = marginaldeathrates,
+  herdimmunityprop  = herdimmunityprops,
+  freeage           = freeages,
+  dumkey            = 1
+)
+settings[, setting_idx:=1:.N]
+settings[, herd_needed:=herdimmunityprop*demsmf[, sum(Bevolking)]]
+settings[, herd_avail:=demsmf[agegrp_max<freeage, max(Bevolking_cum)], by = 'setting_idx']
+settings[, herd_prop:=herd_needed/herd_avail]
+```
+
+We do not know the age-specific death rate.
+However, using the different marginal death rates and the observed death rates,
+we can infer the age specific death rates using a few simple calculations.
+
+$$R_{marg} = \sum_i{p_i*R_i}$$
+
+Where $p_i$ the proportion of the population in age group $i$ and
+$R_i$ the death rate in that age group
+We introduce a single factor R such that $R_i = R * rr_i$, and that $\sum_i{rr_i}=1$.
+Then:
+$$R_{marg} = \sum_i{p_i*R*rr_i} = R * \sum_i{p_i*rr_i}$$
+
+So now we have that
+
+$$R = \frac{R_{marg}}{\sum_{p_i*rr_i}}$$
+
+We procede to calculate $\sum_{p_i*rr_i} := \text{ir_mu}$ and 
+the corresponding $R$ for each marginal death rate
+
+
+```{r, Rfactor}
+ir_mu = agem[variable=='Overleden'][demsmf, sum(ir_norm*i.Bevolking_prop), on='Leeftijdsgroep']
+settings[, Rfactor:=marginaldeathrate / ir_mu]
+
+```
+
+Next we combine each possible scenario with the observed data 
+and calculate the number infections and deaths per age group.
+
+```{r, deaths}
+#### create outer tables for each setting
+agem[, dumkey:=1]
+dfs <- agem[variable=='Overleden'][settings, on='dumkey', allow.cartesian=T]
+
+#### calculate number infected
+dfs[, inherd:=agegrp_max < freeage]
+dfs[demsmf, Bevolking:=i.Bevolking, on='Leeftijdsgroep']
+dfs[demsmf, Bevolking_prop:=i.Bevolking_prop, on='Leeftijdsgroep']
+dfs[, num_infected:=herd_prop*Bevolking*as.numeric(agegrp_max<freeage)]
+
+##### calculate total number of deaths
+dfs[, deathrate:=Rfactor*ir_norm]
+###### make sure the marginal death rates are ok
+drs <- dfs[, list(obs_marginaldeathrate=sum(Bevolking_prop*deathrate)), by=c('setting_idx', 'marginaldeathrate')]
+stopifnot(drs[, all.equal(obs_marginaldeathrate, marginaldeathrate)])
+dfs[, deaths:=deathrate*num_infected]
+
+### define a baseline (freeage==130)
+baseline <- dfs[freeage==130]
+dfs[baseline, deathdifference:=deaths - i.deaths, 
+    on=c('marginaldeathrate', 'herdimmunityprop', 'Leeftijdsgroep')]
+dfs[, excessdeaths:=ifelse(deathdifference>0, deathdifference, 0)]
+dfs[, preventeddeaths:=ifelse(deathdifference<0, -deathdifference, 0)]
+dfs[, totaldeaths:=sum(deaths), by='setting_idx']
+```
+
+We now plot the age-specific death rate for diffenent marginal death rates
+
+```{r, plotdeathrate}
+### deathrate
+dfs %>%
+  .[!duplicated(paste0(marginaldeathrate, Leeftijdsgroep))] %>%
+  mutate(marginaldeathrate=factor(marginaldeathrate)) %>%
+  ggplot(aes(x=agegrp_min, y=deathrate, grp=marginaldeathrate,
+             col=marginaldeathrate)) + 
+  geom_line() + 
+  theme_minimal() + 
+  ggtitle('Age-specific death rate', 'per marginal death rate')
+```
+
+Now we can calculate the number of lives saved for the different situations
+
+```{r, tables}
+## tables
+totaldeaths <- dfs[, list(deaths=sum(deaths), 
+                          deathdifference=sum(deathdifference),
+                          num_infected=sum(num_infected)),
+    by=c('marginaldeathrate', 'herdimmunityprop', 'freeage', 'setting_idx')]
+# totaldeaths[order(deaths)]
+# dcast(totaldeaths, herdimmunityprop~freeage+marginaldeathrate, value.var='deaths')
+
+livessaved <- dcast(totaldeaths[freeage==max(freeage)], herdimmunityprop~marginaldeathrate, value.var='deaths') - 
+              dcast(totaldeaths[freeage==min(freeage)], herdimmunityprop~marginaldeathrate, value.var='deaths')
+livessaved 
+
+deathranks <- totaldeaths[freeage==130]
+deathranks <- deathranks[order(deaths), deathrank:=1:.N]
+totaldeaths[deathranks, deathrank:=i.deathrank, on=c('marginaldeathrate', 'herdimmunityprop')]
+```
+
+As we see, this ranges from `r round(min(livessaved[, 2:ncol(livessaved), with=F]))` in the most
+optimistic scenario to `r round(max(livessaved))` in the most pessimistic scenario.
+
+```{r, plots}
+## plots
+### deathrate
+dfs %>%
+  .[!duplicated(paste0(marginaldeathrate, Leeftijdsgroep))] %>%
+  mutate(marginaldeathrate=factor(marginaldeathrate)) %>%
+  ggplot(aes(x=agegrp_min, y=deathrate, grp=marginaldeathrate,
+             col=marginaldeathrate)) + 
+  geom_line() + 
+  theme_minimal() + 
+  ggtitle('Age-specific death rate', 'per marginal death rate')
+```
+
+Our main result is the comparison between the number of deaths 
+with and without selective isolation
+
+```{r, mainplot}
+dfs %>% 
+  mutate(freeage=factor(freeage)) %>%
+  ggplot(aes(x=agegrp_min, y=deaths, group=setting_idx, col=freeage)) + 
+  geom_line() + 
+  facet_grid(herdimmunityprop~marginaldeathrate) + 
+  theme_minimal() + 
+  ggtitle('Total number of deaths', 'Per marginal deathrate and herd immunity proportion, and isolation type (freeage)')
+```
+
+To model the possible hazards of the selective isolation approach,
+we specifically look at excess deaths in age groups <65 years,
+that would not occur in case of a non-selective approach.
+
+```{r, excess1}
+dfs %>% 
+  .[freeage<130] %>%
+  .[excessdeaths>=0,] %>%
+  mutate(freeage=factor(freeage)) %>%
+  ggplot(aes(x=agegrp_min, y=excessdeaths, group=setting_idx)) + 
+  geom_line() + 
+  facet_grid(herdimmunityprop~marginaldeathrate) + 
+  theme_minimal() + 
+  ggtitle('Excess deaths', 'Deaths that would not have occured in the non-selective isolation method')
+```
+
+To put these excess deaths in perspective,
+we plot them against the total number of deaths in that scenario.
+
+```{r, excess_vs_total}
+dfs %>%
+  .[freeage<130] %>%
+  ggplot(aes(x=totaldeaths, y=excessdeaths, grp=Leeftijdsgroep)) + 
+  geom_line() + 
+  facet_wrap(~Leeftijdsgroep) + 
+  theme_minimal() + 
+  ggtitle('Excess deaths', 'Versus total deaths')
+```
+
+As expected, the 60-64 age group has the most excess deaths,
+with `r round(dfs[agegrp_min==60&freeage<130, min(excessdeaths)])` 
+excess deaths in the most optimistic scenario,
+and `r round(dfs[agegrp_min==60&freeage<130, max(excessdeaths)])` 
+deaths in the most pessimistic scenario.
+
+Next, we constrast these numbers with the number of lives saved.
+
+```{r, excess_vs_saved}
+dfs %>%
+  .[freeage<130] %>%
+  .[, preventeddeaths:=sum(preventeddeaths), by='setting_idx'] %>%
+  ggplot(aes(x=preventeddeaths, y=excessdeaths, grp=Leeftijdsgroep)) + 
+  geom_line() + 
+  facet_wrap(~Leeftijdsgroep) + 
+  theme_minimal() + 
+  ggtitle('Excess deaths', 'Versus preventeddeaths')
+```
+
+## Discussion
+
+In our simple modeling of a selective isolation approach,
+we find that in the Netherlands 
+between 
+`r totaldeaths[deathrank==1&freeage==65, round(abs(deathdifference))]` 
+and 
+`r totaldeaths[deathrank==max(deathrank)&freeage==65, round(abs(deathdifference))]` 
+can be saved.
+
+Our approach relies on (many) simplifying assumptions:
+
+- uniform infection rate
+- all herd gets infected and becomes immune (adapt to allow for deaths)
+- perfect intervention possible
+
+Not modeled:
+
+- improved outcomes for non-COVID-19 patients due to less strain on hospital system.
+
+
