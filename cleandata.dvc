@@ -1,7 +1,7 @@
-md5: ac1cb1464c173a8eb0100d2bef00437c
+md5: 4da11653a0660f8d045b4e1f185c37ea
 cmd: Rscript code/00_cleandata.R
 deps:
-- md5: b3a2e51f440a8a3cab3fa10df3035a86.dir
+- md5: 40bab0a565846c1985ff25bbac66674b.dir
   path: data/incoming/rivm-tables
 - md5: 768330e640977341d0bbf921304c762a
   path: data/incoming/nl_demographics_2019.csv
@@ -13,7 +13,7 @@ outs:
   cache: true
   metric: false
   persist: false
-- md5: 95ac30e149d17a41041974ac07f29e31
+- md5: 74d131d5caddb3e9e07a91a8cf09c756
   path: data/agetable.csv
   cache: true
   metric: false

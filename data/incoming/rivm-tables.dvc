@@ -1,6 +1,6 @@
-md5: 1c2f68bfb43cda3d5e45cbe69d7972cd
+md5: 4dee7fef0ec4a99d97895777e36514aa
 outs:
-- md5: b3a2e51f440a8a3cab3fa10df3035a86.dir
+- md5: 40bab0a565846c1985ff25bbac66674b.dir
   path: rivm-tables
   cache: true
   metric: false
